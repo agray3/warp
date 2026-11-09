@@ -834,6 +834,24 @@ WP_API bool wp_cuda_graph_update_memcpy(void* graph_exec, void* node, void* dst,
 WP_API bool wp_cuda_graph_update_memcpy_batch(
     void* graph_exec, void** nodes, void** dsts, void** srcs, size_t* sizes, int* kinds, int count
 );
+// Patch tables: record where buffer addresses appear in a captured graph's kernel, memset and memcpy
+// nodes (including child graphs and the given conditional body graphs), then retarget a graph exec
+// to new buffer addresses without capturing again. Requires a CUDA 12.4+ driver.
+WP_API void* wp_cuda_graph_patch_table_create(
+    void* context,
+    void* graph,
+    void** body_graphs,
+    int num_body_graphs,
+    const uint64_t* buffer_ptrs,
+    const uint64_t* buffer_sizes,
+    int num_buffers
+);
+WP_API int wp_cuda_graph_patch_table_num_nodes(void* table);
+WP_API int wp_cuda_graph_patch_table_num_sites(void* table);
+// number of copies from host memory in the graph, whose contents might hold buffer addresses
+WP_API int wp_cuda_graph_patch_table_num_host_copies(void* table);
+WP_API bool wp_cuda_graph_patch_table_apply(void* context, void* graph_exec, void* table, const uint64_t* buffer_ptrs);
+WP_API void wp_cuda_graph_patch_table_destroy(void* table);
 
 WP_API void* wp_cuda_graph_insert_alloc_node(void* context, size_t size);
 WP_API void* wp_cuda_graph_insert_free_node(void* context, void* alloc_node);

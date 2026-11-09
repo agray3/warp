@@ -1371,6 +1371,260 @@ def test_ffi_jax_callable_graph_cache(test, device):
         wp.config.enable_graph_capture_module_load_by_default = old_force_module_load
 
 
+@wp.kernel
+def graph_update_accumulate_kernel(a: wp.array[float], b: wp.array[float]):
+    tid = wp.tid()
+    b[tid] = b[tid] + a[tid]
+
+
+@wp.kernel
+def graph_update_countdown_kernel(cond: wp.array[int]):
+    cond[0] = cond[0] - 1
+
+
+# number of times graph_update_func ran, i.e. graphs captured (replays and patches do not run it)
+_graph_update_func_calls = [0]
+
+
+def graph_update_func(
+    # inputs
+    a: wp.array[float],
+    count: wp.array[int],
+    # outputs
+    b: wp.array[float],
+    c: wp.array[float],
+    cond: wp.array[int],
+):
+    """Compute b = (2 + count) * a with a kernel and a capture_while body, and c = a with a memset and a memcpy."""
+    _graph_update_func_calls[0] += 1
+    wp.launch(scale_kernel, dim=a.shape, inputs=[a, 2.0], outputs=[b])
+    wp.copy(cond, count)
+
+    def body():
+        wp.launch(graph_update_accumulate_kernel, dim=a.shape, inputs=[a, b])
+        wp.launch(graph_update_countdown_kernel, dim=1, inputs=[cond])
+
+    wp.capture_while(cond, body)
+    c.zero_()
+    wp.copy(c, a)
+
+
+def graph_update_alias_func(
+    # inputs
+    a: wp.array[float],
+    d: wp.array[float],
+    # outputs
+    b: wp.array[float],
+):
+    _graph_update_func_calls[0] += 1
+    wp.launch(graph_update_accumulate_kernel, dim=a.shape, inputs=[a, b])
+    wp.launch(graph_update_accumulate_kernel, dim=a.shape, inputs=[d, b])
+
+
+def graph_update_scale_func(
+    # inputs
+    a: wp.array[float],
+    # outputs
+    b: wp.array[float],
+):
+    _graph_update_func_calls[0] += 1
+    wp.launch(scale_kernel, dim=a.shape, inputs=[a, 2.0], outputs=[b])
+
+
+# pinned host array copied from by graph_update_host_copy_func during capture
+_graph_update_host_src = [None]
+
+
+def graph_update_host_copy_func(
+    # inputs
+    a: wp.array[float],
+    # outputs
+    b: wp.array[float],
+):
+    """Compute b = a + host data, copying the host data into b during capture."""
+    _graph_update_func_calls[0] += 1
+    wp.copy(b, _graph_update_host_src[0])
+    wp.launch(graph_update_accumulate_kernel, dim=a.shape, inputs=[a, b])
+
+
+@unittest.skipUnless(_jax_version() >= (0, 5, 0), "JAX version too old")
+def test_ffi_jax_callable_graph_update(test, device):
+    """Test that graph_update patches new buffer addresses into the captured graph instead of recapturing."""
+    if not wp._src.context.is_conditional_graph_supported():
+        test.skipTest("Graph patching and conditional graph nodes require a CUDA 12.4+ driver")
+
+    jax = _import_jax()
+    jp = _import_jax_numpy()
+
+    wp.load_module(module=scale_kernel.module, device=device)
+    n = 64
+
+    def run(graph_update, iterations):
+        wp.clear_jax_callable_graph_cache()
+        jax_func = wp.jax_callable(
+            graph_update_func,
+            num_outputs=3,
+            graph_mode=wp.JaxCallableGraphMode.WARP,
+            graph_update=graph_update,
+        )
+        f = jax.jit(lambda a, count: jax_func(a, count, output_dims={"b": n, "c": n, "cond": 1}))
+        _graph_update_func_calls[0] = 0
+        keep_alive = []
+        with jax.default_device(wp.device_to_jax(device)):
+            for i in range(iterations):
+                a = jp.arange(n, dtype=jp.float32) * (i + 1)
+                count = jp.array([i % 3 + 1], dtype=jp.int32)
+                b, c, cond = f(a, count)
+                expected = np.arange(n, dtype=np.float32) * (i + 1)
+                assert_np_equal(np.asarray(b), (2 + i % 3 + 1) * expected)
+                assert_np_equal(np.asarray(c), expected)
+                assert_np_equal(np.asarray(cond), np.zeros(1, dtype=np.int32))
+                # keep the arrays alive so that every call gets new buffer addresses
+                keep_alive.append((a, count, b, c, cond))
+        return jax_func
+
+    # with graph_update, the graph is captured once and patched for every later call
+    jax_func = run(graph_update=True, iterations=6)
+    test.assertEqual(_graph_update_func_calls[0], 1)
+    test.assertEqual(jax_func.graph_cache_size, 1)
+
+    # without it, every call with new addresses captures a new graph
+    jax_func = run(graph_update=False, iterations=6)
+    test.assertEqual(_graph_update_func_calls[0], 6)
+    test.assertEqual(jax_func.graph_cache_size, 6)
+
+    # without the argument, warp.config.jax_callable_graph_update decides
+    saved_config = wp.config.jax_callable_graph_update
+    try:
+        wp.config.jax_callable_graph_update = True
+        jax_func = run(graph_update=None, iterations=6)
+        test.assertEqual(_graph_update_func_calls[0], 1)
+        test.assertEqual(jax_func.graph_cache_size, 1)
+
+        wp.config.jax_callable_graph_update = False
+        jax_func = run(graph_update=None, iterations=6)
+        test.assertEqual(_graph_update_func_calls[0], 6)
+        test.assertEqual(jax_func.graph_cache_size, 6)
+
+        # an explicit argument overrides the config
+        wp.config.jax_callable_graph_update = True
+        jax_func = run(graph_update=False, iterations=6)
+        test.assertEqual(_graph_update_func_calls[0], 6)
+    finally:
+        wp.config.jax_callable_graph_update = saved_config
+
+    wp.clear_jax_callable_graph_cache()
+
+
+@unittest.skipUnless(_jax_version() >= (0, 5, 0), "JAX version too old")
+def test_ffi_jax_callable_graph_update_recurring(test, device):
+    """Test that addresses alternating between executions get cached graphs instead of being patched each time."""
+    if not wp._src.context.is_conditional_graph_supported():
+        test.skipTest("Graph patching requires a CUDA 12.4+ driver")
+
+    jax = _import_jax()
+    jp = _import_jax_numpy()
+
+    n = 32
+    wp.clear_jax_callable_graph_cache()
+    jax_func = wp.jax_callable(graph_update_scale_func, graph_mode=wp.JaxCallableGraphMode.WARP)
+    f = jax.jit(lambda a: jax_func(a, output_dims={"b": n})[0])
+
+    patches = [0]
+    original_patch = jax_func._patch_graph
+
+    def counting_patch(*args):
+        patched = original_patch(*args)
+        patches[0] += patched
+        return patched
+
+    jax_func._patch_graph = counting_patch
+    try:
+        with jax.default_device(wp.device_to_jax(device)):
+            inputs = [jp.full(n, 1.0, dtype=jp.float32), jp.full(n, 2.0, dtype=jp.float32)]
+
+            def run(iterations):
+                _graph_update_func_calls[0] = 0
+                patches[0] = 0
+                for i in range(iterations):
+                    # the output is released after each call, so XLA can reuse its memory
+                    assert_np_equal(np.asarray(f(inputs[i % 2])), np.full(n, 2.0 * (i % 2 + 1), dtype=np.float32))
+
+            # alternating inputs: once each address set has a cached graph, calls neither capture nor patch
+            run(8)
+            run(8)
+            test.assertEqual(_graph_update_func_calls[0], 0)
+            test.assertEqual(patches[0], 0)
+    finally:
+        del jax_func._patch_graph
+        wp.clear_jax_callable_graph_cache()
+
+
+@unittest.skipUnless(_jax_version() >= (0, 5, 0), "JAX version too old")
+def test_ffi_jax_callable_graph_update_host_copy(test, device):
+    """Test that graphs copying from host memory are only patched when graph_update=True is passed."""
+    if not wp._src.context.is_conditional_graph_supported():
+        test.skipTest("Graph patching requires a CUDA 12.4+ driver")
+
+    jax = _import_jax()
+    jp = _import_jax_numpy()
+
+    n = 32
+    _graph_update_host_src[0] = wp.array(np.arange(n, dtype=np.float32), device="cpu", pinned=True)
+    try:
+        for graph_update, expected_captures in ((None, 4), (True, 1)):
+            wp.clear_jax_callable_graph_cache()
+            jax_func = wp.jax_callable(
+                graph_update_host_copy_func, graph_mode=wp.JaxCallableGraphMode.WARP, graph_update=graph_update
+            )
+            f = jax.jit(lambda a, jax_func=jax_func: jax_func(a, output_dims={"b": n})[0])
+            _graph_update_func_calls[0] = 0
+            keep_alive = []
+            with jax.default_device(wp.device_to_jax(device)):
+                for i in range(4):
+                    a = jp.full(n, float(i), dtype=jp.float32)
+                    b = f(a)
+                    assert_np_equal(np.asarray(b), np.arange(n, dtype=np.float32) + i)
+                    keep_alive.append((a, b))
+            test.assertEqual(_graph_update_func_calls[0], expected_captures)
+    finally:
+        _graph_update_host_src[0] = None
+        wp.clear_jax_callable_graph_cache()
+
+
+@unittest.skipUnless(_jax_version() >= (0, 5, 0), "JAX version too old")
+def test_ffi_jax_callable_graph_update_aliased(test, device):
+    """Test that a graph captured with one buffer passed as two arguments is recaptured once they differ."""
+    if not wp._src.context.is_conditional_graph_supported():
+        test.skipTest("Graph patching requires a CUDA 12.4+ driver")
+
+    jax = _import_jax()
+    jp = _import_jax_numpy()
+
+    n = 32
+    wp.clear_jax_callable_graph_cache()
+    jax_func = wp.jax_callable(
+        graph_update_alias_func,
+        graph_mode=wp.JaxCallableGraphMode.WARP,
+        in_out_argnames=["b"],
+        graph_update=True,
+    )
+    f = jax.jit(jax_func)
+    _graph_update_func_calls[0] = 0
+    with jax.default_device(wp.device_to_jax(device)):
+        a = jp.arange(n, dtype=jp.float32)
+        (b,) = f(a, a, jp.zeros(n, dtype=jp.float32))  # a passed as both inputs
+        assert_np_equal(np.asarray(b), 2 * np.arange(n, dtype=np.float32))
+        test.assertEqual(_graph_update_func_calls[0], 1)
+
+        d = jp.full(n, 10.0, dtype=jp.float32)
+        (b,) = f(a, d, jp.zeros(n, dtype=jp.float32))  # no longer aliased: the patch is refused
+        assert_np_equal(np.asarray(b), np.arange(n, dtype=np.float32) + 10.0)
+        test.assertEqual(_graph_update_func_calls[0], 2)
+
+    wp.clear_jax_callable_graph_cache()
+
+
 @unittest.skipUnless(_jax_version() >= (0, 5, 0), "JAX version too old")
 def test_ffi_jax_callable_graph_replay_skips_module_load(test, device):
     """Test that FFI graph capture loads no extra modules and graph replay loads none.
@@ -3383,6 +3637,10 @@ else:
     if jax_cuda_candidate_devices and jax.__version_info__ >= (0, 5, 0):
         cuda_only_jax_tests = (
             test_ffi_jax_callable_graph_cache,
+            test_ffi_jax_callable_graph_update,
+            test_ffi_jax_callable_graph_update_recurring,
+            test_ffi_jax_callable_graph_update_host_copy,
+            test_ffi_jax_callable_graph_update_aliased,
             test_ffi_jax_callable_graph_replay_skips_module_load,
             test_ffi_jax_cuda_requires_cuda_support,
             test_ffi_callback,

@@ -32,6 +32,7 @@ API
    enable_mempools_at_init
    enable_tiles_in_stack_memory
    enable_vector_component_overwrites
+   jax_callable_graph_update
    kernel_cache_dir
    launch_array_access_mode
    legacy_cpu_linker

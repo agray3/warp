@@ -761,6 +761,22 @@ just focus on the differences:
   and call :func:`clear_jax_callable_graph_cache() <warp.clear_jax_callable_graph_cache>`
   to release cached graph memory for one callable or all registered JAX callables.
   These cache controls do not apply to the staged modes.
+
+  XLA can place a callable's arguments at new addresses on each execution of a jitted function,
+  even for arrays whose contents do not change, which makes ``JaxCallableGraphMode.WARP``
+  capture a new graph on every such execution.
+  By default, Warp instead patches the new addresses into a graph already captured for the call,
+  which costs far less than a capture and needs no staging buffers or copies.
+  Kernel, memset and memcpy nodes are patched, including those in child graphs and in
+  :func:`capture_if() <warp.capture_if>` and :func:`capture_while() <warp.capture_while>` bodies.
+  Addresses that recur, such as buffers that alternate between executions, get their own cached graphs.
+  Graphs that copy data from host memory are recaptured rather than patched,
+  because that data could hold argument addresses, which patching would not update.
+  Pass ``graph_update=True`` to patch such graphs anyway, when the callable never copies argument addresses
+  into device memory (for example by building an array of arrays from its arguments).
+  Pass ``graph_update=False``, or set ``warp.config.jax_callable_graph_update = False`` to cover callables
+  created by other libraries, to always capture new graphs.
+  Patching needs a CUDA 12.4+ driver; without one, Warp captures new graphs as before.
 - :func:`jax_kernel() <warp.jax_kernel>` and :func:`jax_callable() <warp.jax_callable>` take an optional
   ``module_preload_mode`` argument. The default, ``JaxModulePreloadMode.CURRENT_DEVICE``, preloads the module on the
   current JAX device. ``JaxModulePreloadMode.ALL_DEVICES`` preloads it on the host CPU and every supported local CUDA

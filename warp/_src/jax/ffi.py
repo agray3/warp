@@ -25,7 +25,7 @@ from warp._src.context import (
     invoke_cpu_blocks,
 )
 from warp._src.jax import get_jax_device
-from warp._src.logger import log_warning
+from warp._src.logger import log_debug, log_warning
 from warp._src.types import (
     array_t,
     matches_array_class,
@@ -645,6 +645,19 @@ class FfiCallDesc:
         self.output_memcpy_kinds = None
 
 
+class _GraphPatchTable:
+    """Owns a native graph patch table; destroyed with the capture it belongs to."""
+
+    def __init__(self, handle):
+        self.handle = handle
+
+    def __del__(self):
+        try:
+            wp._src.context.runtime.core.wp_cuda_graph_patch_table_destroy(self.handle)
+        except (AttributeError, TypeError):
+            pass  # interpreter shutdown
+
+
 class FfiCallable:
     def __init__(
         self,
@@ -675,6 +688,16 @@ class FfiCallable:
         # LRU cache of graphs captured by Warp
         self._graph_cache_max = graph_cache_max
         self.captures = collections.OrderedDict()
+
+        # In WARP mode, retarget the last graph captured for a call site to new buffer addresses
+        # instead of capturing again (see jax_callable(graph_update=...)). None defers to
+        # warp.config.jax_callable_graph_update, read on each graph cache miss.
+        self.graph_update = None
+        self._patchable_keys = {}  # (device ordinal, call_id) -> capture key of the graph to patch
+        # (device ordinal, call_id) -> recently patched-away capture keys, to detect recurring addresses
+        self._patched_away = {}
+        # (device ordinal, call_id) whose graphs cannot be patched, least recently added first
+        self._unpatchable_sites = collections.OrderedDict()
 
         # Selective staging: None means copy all, else copy only specified
         self.stage_in_argnames = set(stage_in_argnames) if stage_in_argnames else None
@@ -979,6 +1002,13 @@ class FfiCallable:
                         # early out
                         return
 
+                    graph_update = self._graph_update_enabled()
+                    if graph_update and self._patch_graph(device, device_ordinal, call_id, capture_key, ip + op):
+                        graph_exec = self.captures[capture_key].graph.graph_exec
+                        if not wp._src.context.runtime.core.wp_cuda_graph_launch(graph_exec, cuda_stream):
+                            raise RuntimeError(f"Graph launch error: {wp._src.context.runtime.get_error_string()}")
+                        return
+
                 elif self.graph_mode == JaxCallableGraphMode.WARP_STAGED_EX:
                     if call_desc.capture is not None:
                         graph_exec = call_desc.capture.graph.graph_exec
@@ -1086,9 +1116,14 @@ class FfiCallable:
                         # keep a reference to the capture object and reuse it with same buffers
                         self.captures[capture_key] = capture
 
+                        if graph_update:
+                            self._create_patch_table(
+                                device, device_ordinal, call_id, capture_key, capture, ip + op, inputs, outputs
+                            )
+
                         # respect the cache size limit if specified
                         if self._graph_cache_max is not None and len(self.captures) > self._graph_cache_max:
-                            self.captures.popitem(last=False)
+                            self._evict_oldest_capture()
 
                     elif self.graph_mode == JaxCallableGraphMode.WARP_STAGED_EX:
                         # capturing with WARP using staging buffers and memcopies done outside of the graph
@@ -1312,6 +1347,127 @@ class FfiCallable:
             print(f"  total output size: {total_output_size} bytes")
             print(f"  total size: {total_input_size + total_output_size} bytes")
 
+    def _graph_update_enabled(self) -> bool:
+        if self.graph_update is not None:
+            return self.graph_update
+        return bool(wp.config.jax_callable_graph_update)
+
+    def _buffer_sizes(self, inputs, outputs):
+        """Sizes in bytes of the array buffers, in the order of the graph cache key (inputs, then outputs)."""
+        sizes = []
+        args = [(inputs[i].contents, self.input_args[i]) for i in self.array_input_indices]
+        args += [(outputs[i].contents, self.output_args[i - self.num_in_out]) for i in self.array_output_indices]
+        for buffer, arg in args:
+            count = 1
+            for d in range(buffer.rank - arg.dtype_ndim):
+                count *= buffer.dims[d]
+            sizes.append(count * type_size_in_bytes(arg.type.dtype))
+        return sizes
+
+    def _evict_oldest_capture(self):
+        key, capture = self.captures.popitem(last=False)
+        # forget the call site of an evicted patchable graph, so per-site state does not accumulate
+        site = getattr(capture, "patch_site", None)
+        if site is not None and self._patchable_keys.get(site) == key:
+            del self._patchable_keys[site]
+            self._patched_away.pop(site, None)
+
+    def _clear_graph_cache(self):
+        self.captures.clear()
+        self._patchable_keys.clear()
+        self._patched_away.clear()
+        self._unpatchable_sites.clear()
+
+    def _create_patch_table(self, device, device_ordinal, call_id, capture_key, capture, ptrs, inputs, outputs):
+        """Record where the buffer addresses appear in a new capture, so later calls can patch it.
+
+        Each call site has one graph that is patched on cache misses. A new capture only becomes that
+        graph when the call site has none, so graphs cached for recurring addresses stay cached.
+        """
+        site = (device_ordinal, call_id)
+        if site in self._unpatchable_sites:
+            return
+        target = self.captures.get(self._patchable_keys.get(site))
+        if getattr(target, "patch_table", None) is not None:
+            return
+
+        core = wp._src.context.runtime.core
+        sizes = self._buffer_sizes(inputs, outputs)
+        n = len(ptrs)
+        bodies = capture.graph.conditional_bodies
+        handle = core.wp_cuda_graph_patch_table_create(
+            device.context,
+            capture.graph.graph,
+            (ctypes.c_void_p * len(bodies))(*bodies),
+            len(bodies),
+            (ctypes.c_uint64 * n)(*(p or 0 for p in ptrs)),
+            (ctypes.c_uint64 * n)(*sizes),
+            n,
+        )
+        if not handle:
+            reason = wp._src.context.runtime.get_error_string()
+        elif self.graph_update is None and core.wp_cuda_graph_patch_table_num_host_copies(handle):
+            # Host data copied during capture may hold buffer addresses, which patching would leave
+            # stale. Only patch such graphs when graph_update=True is passed explicitly.
+            core.wp_cuda_graph_patch_table_destroy(handle)
+            handle = None
+            reason = "the graph copies data from host memory"
+        if not handle:
+            self._unpatchable_sites[site] = None
+            if len(self._unpatchable_sites) > _GRAPH_UPDATE_MAX_UNPATCHABLE_SITES:
+                self._unpatchable_sites.popitem(last=False)
+            self._patchable_keys.pop(site, None)
+            message = (
+                f"jax_callable '{self.name}': graph_update unavailable, graphs will be recaptured "
+                f"when buffer addresses change ({reason})"
+            )
+            if self.graph_update:
+                log_warning(message, once=True)
+            else:
+                log_debug(message)
+            return
+        capture.patch_table = _GraphPatchTable(handle)
+        capture.patch_site = site
+        self._patchable_keys[site] = capture_key
+
+    def _patch_graph(self, device, device_ordinal, call_id, capture_key, ptrs):
+        """Retarget the call site's patchable graph to new buffer addresses.
+
+        On success the graph is re-keyed under ``capture_key``. Returns False if there is no graph to
+        patch, the addresses recur, or patching failed, in which case the caller captures a new graph.
+        """
+        site = (device_ordinal, call_id)
+        old_key = self._patchable_keys.get(site)
+        capture = self.captures.get(old_key) if old_key is not None else None
+        table = getattr(capture, "patch_table", None)
+        if table is None:
+            return False
+
+        # Addresses that were patched away before are likely to recur (e.g. buffers alternating
+        # between executions), so cache a graph for them rather than patching back and forth.
+        patched_away = self._patched_away.setdefault(site, collections.OrderedDict())
+        if capture_key in patched_away:
+            del patched_away[capture_key]
+            return False
+
+        core = wp._src.context.runtime.core
+        n = len(ptrs)
+        if core.wp_cuda_graph_patch_table_apply(
+            device.context, capture.graph.graph_exec, table.handle, (ctypes.c_uint64 * n)(*(p or 0 for p in ptrs))
+        ):
+            del self.captures[old_key]
+            self.captures[capture_key] = capture
+            self._patchable_keys[site] = capture_key
+            patched_away[old_key] = None
+            if len(patched_away) > _GRAPH_UPDATE_RECENT_KEYS:
+                patched_away.popitem(last=False)
+            return True
+
+        # the graph exec may be partially patched, so it cannot be used again
+        del self.captures[old_key]
+        del self._patchable_keys[site]
+        return False
+
     @property
     def graph_cache_max(self) -> int | None:
         return self._graph_cache_max
@@ -1322,7 +1478,7 @@ class FfiCallable:
             if value is not None and (self._graph_cache_max is None or value < self._graph_cache_max):
                 # trim the cache if needed
                 while len(self.captures) > value:
-                    self.captures.popitem(last=False)
+                    self._evict_oldest_capture()
             self._graph_cache_max = value
 
     @property
@@ -1743,6 +1899,12 @@ def jax_kernel(
     return _checked_wrapper
 
 
+# number of patched-away graph cache keys remembered per call site to detect recurring addresses
+_GRAPH_UPDATE_RECENT_KEYS = 16
+# number of unpatchable call sites remembered per callable to skip building patch tables for them
+_GRAPH_UPDATE_MAX_UNPATCHABLE_SITES = 256
+
+
 def jax_callable(
     func: Callable,
     num_outputs: int = 1,
@@ -1755,6 +1917,7 @@ def jax_callable(
     graph_cache_max: int | None = JAX_CALLABLE_DEFAULT_GRAPH_CACHE_MAX,
     module_preload_mode: JaxModulePreloadMode = JaxModulePreloadMode.CURRENT_DEVICE,
     has_side_effect: bool = False,
+    graph_update: bool | None = None,
 ):
     """Create a JAX callback from an annotated Python function.
 
@@ -1816,6 +1979,19 @@ def jax_callable(
             not suppressed.
         has_side_effect: Whether the custom call has side effects. When True,
             the FFI call will be executed even when the outputs are not used.
+        graph_update: In ``JaxCallableGraphMode.WARP`` mode, when a call's buffer addresses
+            are not in the graph cache, patch the addresses into a graph already captured for
+            that call site instead of capturing a new graph. XLA may place arguments at new
+            addresses on every execution of a jitted function, so without this a callable can
+            be recaptured on every execution. Kernel, memset and memcpy nodes are patched,
+            including those in child graphs and in ``capture_if``/``capture_while`` bodies.
+            Addresses that recur, such as buffers that alternate between executions, get their
+            own cached graphs. ``True`` requires that the callable not copy buffer addresses into
+            device memory during capture (for example by building an array of arrays from its
+            arguments), since those copies are not patched. ``None`` (the default) uses
+            :attr:`warp.config.jax_callable_graph_update`, which is on by default and does not
+            patch graphs that copy data from host memory. ``False`` always captures a new graph.
+            Patching requires a CUDA 12.4+ driver; otherwise graphs are recaptured as usual.
 
     Limitations:
         - All kernel arguments must be contiguous arrays or scalars.
@@ -1844,7 +2020,7 @@ def jax_callable(
     hashable_stage_in_argnames = tuple(stage_in_argnames) if stage_in_argnames else None
     hashable_stage_out_argnames = tuple(stage_out_argnames) if stage_out_argnames else None
 
-    # Note: we don't include graph_cache_max in the key, it is applied below.
+    # Note: we don't include graph_cache_max or graph_update in the key, they are applied below.
     key = (
         func,
         num_outputs,
@@ -1878,6 +2054,7 @@ def jax_callable(
         else:
             # make sure we're using the latest graph cache max
             callable.graph_cache_max = graph_cache_max
+        callable.graph_update = graph_update
 
     return callable
 
@@ -1886,12 +2063,12 @@ def clear_jax_callable_graph_cache(callable: FfiCallable | None = None):
     """Clear the graph cache of the given callable or all callables if ``None``."""
 
     if callable is not None:
-        callable.captures.clear()
+        callable._clear_graph_cache()
     else:
         # apply to all callables
         with _FFI_REGISTRY_LOCK:
             for callable in _FFI_CALLABLE_REGISTRY.values():
-                callable.captures.clear()
+                callable._clear_graph_cache()
 
 
 ###############################################################################

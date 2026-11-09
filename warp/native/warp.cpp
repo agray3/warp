@@ -1203,6 +1203,27 @@ WP_API bool wp_cuda_graph_update_memcpy_batch(
     return false;
 }
 
+WP_API void* wp_cuda_graph_patch_table_create(
+    void* context,
+    void* graph,
+    void** body_graphs,
+    int num_body_graphs,
+    const uint64_t* buffer_ptrs,
+    const uint64_t* buffer_sizes,
+    int num_buffers
+)
+{
+    return NULL;
+}
+WP_API int wp_cuda_graph_patch_table_num_nodes(void* table) { return 0; }
+WP_API int wp_cuda_graph_patch_table_num_sites(void* table) { return 0; }
+WP_API int wp_cuda_graph_patch_table_num_host_copies(void* table) { return 0; }
+WP_API bool wp_cuda_graph_patch_table_apply(void* context, void* graph_exec, void* table, const uint64_t* buffer_ptrs)
+{
+    return false;
+}
+WP_API void wp_cuda_graph_patch_table_destroy(void* table) { }
+
 WP_API void* wp_cuda_graph_insert_alloc_node(void* context, size_t size) { return NULL; }
 WP_API void* wp_cuda_graph_insert_free_node(void* context, void* alloc_node) { return NULL; }
 WP_API void* wp_cuda_graph_insert_empty_node(void* context) { return NULL; }

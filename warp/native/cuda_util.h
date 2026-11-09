@@ -122,6 +122,12 @@ CUresult cuGraphAddNode_f(
 #endif
 CUresult cuGraphNodeGetDependentNodes_f(CUgraphNode hNode, CUgraphNode* dependentNodes, size_t* numDependentNodes);
 CUresult cuGraphNodeGetType_f(CUgraphNode hNode, CUgraphNodeType* type);
+CUresult cuGraphKernelNodeGetParams_f(CUgraphNode hNode, CUDA_KERNEL_NODE_PARAMS* nodeParams);
+CUresult
+cuGraphExecKernelNodeSetParams_f(CUgraphExec hGraphExec, CUgraphNode hNode, const CUDA_KERNEL_NODE_PARAMS* nodeParams);
+// requires a CUDA 12.4+ driver; returns an error otherwise (see cuFuncGetParamInfo_available())
+CUresult cuFuncGetParamInfo_f(CUfunction func, size_t paramIndex, size_t* paramOffset, size_t* paramSize);
+bool cuFuncGetParamInfo_available();
 CUresult cuModuleUnload_f(CUmodule hmod);
 CUresult cuModuleLoadDataEx_f(
     CUmodule* module, const void* image, unsigned int numOptions, CUjit_option* options, void** optionValues

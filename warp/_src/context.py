@@ -6562,6 +6562,9 @@ class Graph:
         self._deterministic_buffer_refs: list[Any] = []
         self.graph_exec: ctypes.c_void_p | None = None
         self.graph: ctypes.c_void_p | None = None
+        # body graphs of conditional nodes (capture_if/capture_while), owned by those nodes; recorded
+        # because they cannot be queried from a conditional node on all supported drivers
+        self.conditional_bodies: list[int] = []
 
         # APIC recording state
         self.apic: bool = False  # Whether APIC serialization is allowed
@@ -8440,6 +8443,32 @@ class Runtime:
                 ctypes.c_int,
             ]
             self.core.wp_cuda_graph_update_memcpy_batch.restype = ctypes.c_bool
+
+            self.core.wp_cuda_graph_patch_table_create.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_uint64),
+                ctypes.POINTER(ctypes.c_uint64),
+                ctypes.c_int,
+            ]
+            self.core.wp_cuda_graph_patch_table_create.restype = ctypes.c_void_p
+            self.core.wp_cuda_graph_patch_table_num_nodes.argtypes = [ctypes.c_void_p]
+            self.core.wp_cuda_graph_patch_table_num_nodes.restype = ctypes.c_int
+            self.core.wp_cuda_graph_patch_table_num_sites.argtypes = [ctypes.c_void_p]
+            self.core.wp_cuda_graph_patch_table_num_sites.restype = ctypes.c_int
+            self.core.wp_cuda_graph_patch_table_num_host_copies.argtypes = [ctypes.c_void_p]
+            self.core.wp_cuda_graph_patch_table_num_host_copies.restype = ctypes.c_int
+            self.core.wp_cuda_graph_patch_table_apply.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_uint64),
+            ]
+            self.core.wp_cuda_graph_patch_table_apply.restype = ctypes.c_bool
+            self.core.wp_cuda_graph_patch_table_destroy.argtypes = [ctypes.c_void_p]
+            self.core.wp_cuda_graph_patch_table_destroy.restype = None
 
             self.core.wp_cuda_graph_insert_alloc_node.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
             self.core.wp_cuda_graph_insert_alloc_node.restype = ctypes.c_void_p
@@ -14109,6 +14138,7 @@ def capture_if(
     main_graph = capture_pause(stream=stream, _suspend_apic_recording=False)
     # store the pointer to the cuda graph to restore it later
     main_graph_ptr = main_graph.graph
+    main_graph.conditional_bodies.extend(g.value for g in (graph_on_true, graph_on_false) if g.value)
 
     branch_a = ctypes.c_void_p()
     branch_b = ctypes.c_void_p()
@@ -14329,6 +14359,8 @@ def capture_while(condition: warp.array[int], while_body: Callable | Graph, stre
     main_graph = capture_pause(stream=stream, _suspend_apic_recording=False)
     # store the pointer to the cuda graph to restore it later
     main_graph_ptr = main_graph.graph
+
+    main_graph.conditional_bodies.append(body_graph.value)
 
     # temporarily repurpose the main_graph python object such that all dependencies
     # added through _retain_module_exec() end up in the correct python graph object

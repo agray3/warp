@@ -29,6 +29,7 @@
 #include <iterator>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -3879,6 +3880,341 @@ bool wp_cuda_graph_update_memcpy_batch(
 
     return true;
 }
+
+// ---------------------------------------------------------------------------------------
+// Graph patch tables
+//
+// A patch table records where the addresses of a set of buffers appear in the nodes of a
+// captured graph, so that an instantiated graph exec can be retargeted to new buffers with
+// cuGraphExec*SetParams instead of capturing the graph again. It covers kernel nodes (any
+// 8-byte word of a kernel parameter that points into a buffer), memset nodes (dst) and memcpy
+// nodes (src/dst), in the graph itself, its child graphs and the given conditional body graphs.
+// Conditional body graphs must be passed in explicitly because they cannot be queried from a
+// conditional node on all supported drivers.
+//
+// A buffer address that was copied into device memory (e.g. a table of pointers built from the
+// buffers during capture) is not visible to the scan and will not be patched; callers must not
+// use a patch table for graphs that do this.
+// ---------------------------------------------------------------------------------------
+
+namespace {
+
+struct GraphPatchSite {
+    uint32_t param;  // kernel parameter index (kernel nodes), 0 = src / 1 = dst (memcpy), 0 (memset)
+    uint32_t offset;  // byte offset of the 8-byte address within the parameter (kernel nodes only)
+    uint32_t buffer;  // index of the buffer the address points into
+    uint64_t delta;  // offset of the address from the start of the buffer
+};
+
+enum GraphPatchNodeKind { GRAPH_PATCH_KERNEL, GRAPH_PATCH_MEMSET, GRAPH_PATCH_MEMCPY };
+
+struct GraphPatchNode {
+    CUgraphNode node = nullptr;
+    GraphPatchNodeKind kind = GRAPH_PATCH_KERNEL;
+    CUDA_KERNEL_NODE_PARAMS kernel_params = {};
+    std::vector<std::vector<uint8_t>> param_values;  // owned copies of the kernel parameters
+    std::vector<void*> param_ptrs;  // kernelParams array pointing into param_values
+    cudaMemsetParams memset_params = {};
+    cudaMemcpy3DParms memcpy_params = {};
+    std::vector<GraphPatchSite> sites;
+};
+
+struct GraphPatchTable {
+    std::vector<GraphPatchNode> nodes;
+    std::vector<uint64_t> buffer_ptrs;  // current buffer addresses of the patched graph exec
+    // buffers that were the same allocation at capture (sites refer to the first); the table only
+    // remains valid while they keep sharing an address
+    std::vector<std::pair<uint32_t, uint32_t>> aliases;
+    size_t num_sites = 0;
+    // copies from host memory, whose contents may include buffer addresses that cannot be patched
+    size_t num_host_copies = 0;
+};
+
+struct GraphPatchRange {
+    uint64_t begin;
+    uint64_t end;
+    uint32_t buffer;
+};
+
+// find the buffer containing the given address, ranges sorted by begin and non-overlapping
+const GraphPatchRange* graph_patch_find(const std::vector<GraphPatchRange>& ranges, uint64_t value)
+{
+    auto it = std::upper_bound(ranges.begin(), ranges.end(), value, [](uint64_t v, const GraphPatchRange& r) {
+        return v < r.begin;
+    });
+    if (it == ranges.begin())
+        return nullptr;
+    --it;
+    return value < it->end ? &*it : nullptr;
+}
+
+// whether the driver reports ptr as device memory that is not managed, i.e. a copy from it cannot read host data;
+// uses the driver API because cudaPointerGetAttributes() returns cudaErrorInvalidValue for JAX device buffers
+bool graph_patch_is_device_memory(const void* ptr)
+{
+    CUdeviceptr p = reinterpret_cast<CUdeviceptr>(ptr);
+    unsigned int is_managed = 0;
+    unsigned int memory_type = 0;
+    return cuPointerGetAttribute_f(&is_managed, CU_POINTER_ATTRIBUTE_IS_MANAGED, p) == CUDA_SUCCESS && !is_managed
+        && cuPointerGetAttribute_f(&memory_type, CU_POINTER_ATTRIBUTE_MEMORY_TYPE, p) == CUDA_SUCCESS
+        && memory_type == CU_MEMORYTYPE_DEVICE;
+}
+
+bool graph_patch_collect(cudaGraph_t graph, std::vector<std::pair<cudaGraphNode_t, cudaGraphNodeType>>& nodes)
+{
+    size_t num_nodes = 0;
+    if (!check_cuda(cudaGraphGetNodes(graph, nullptr, &num_nodes)))
+        return false;
+    std::vector<cudaGraphNode_t> graph_nodes(num_nodes);
+    if (num_nodes > 0 && !check_cuda(cudaGraphGetNodes(graph, graph_nodes.data(), &num_nodes)))
+        return false;
+
+    for (cudaGraphNode_t node : graph_nodes) {
+        cudaGraphNodeType type;
+        if (!check_cuda(cudaGraphNodeGetType(node, &type)))
+            return false;
+        nodes.emplace_back(node, type);
+        if (type == cudaGraphNodeTypeGraph) {
+            cudaGraph_t child = nullptr;
+            if (!check_cuda(cudaGraphChildGraphNodeGetGraph(node, &child)) || !graph_patch_collect(child, nodes))
+                return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+void* wp_cuda_graph_patch_table_create(
+    void* context,
+    void* graph,
+    void** body_graphs,
+    int num_body_graphs,
+    const uint64_t* buffer_ptrs,
+    const uint64_t* buffer_sizes,
+    int num_buffers
+)
+{
+    if (!cuFuncGetParamInfo_available()) {
+        wp::set_error_string("Warp error: patching graph nodes requires a CUDA 12.4+ driver");
+        return nullptr;
+    }
+
+    ContextGuard guard(context);
+
+    std::vector<GraphPatchRange> ranges;
+    ranges.reserve(num_buffers);
+    for (int i = 0; i < num_buffers; i++) {
+        if (buffer_ptrs[i] && buffer_sizes[i])
+            ranges.push_back({ buffer_ptrs[i], buffer_ptrs[i] + buffer_sizes[i], uint32_t(i) });
+    }
+    std::sort(ranges.begin(), ranges.end(), [](const GraphPatchRange& a, const GraphPatchRange& b) {
+        return a.begin < b.begin || (a.begin == b.begin && a.buffer < b.buffer);
+    });
+
+    // the same buffer passed as several arguments: attribute its addresses to the first argument
+    std::vector<std::pair<uint32_t, uint32_t>> aliases;
+    std::vector<GraphPatchRange> unique_ranges;
+    for (const GraphPatchRange& r : ranges) {
+        if (!unique_ranges.empty() && r.begin == unique_ranges.back().begin && r.end == unique_ranges.back().end) {
+            aliases.emplace_back(unique_ranges.back().buffer, r.buffer);
+            continue;
+        }
+        if (!unique_ranges.empty() && r.begin < unique_ranges.back().end) {
+            // partially overlapping buffers would make the owner of an address ambiguous
+            wp::set_error_string("Warp error: cannot patch a graph whose buffers partially overlap");
+            return nullptr;
+        }
+        unique_ranges.push_back(r);
+    }
+    ranges.swap(unique_ranges);
+
+    std::vector<std::pair<cudaGraphNode_t, cudaGraphNodeType>> nodes;
+    if (!graph_patch_collect(static_cast<cudaGraph_t>(graph), nodes))
+        return nullptr;
+    for (int i = 0; i < num_body_graphs; i++) {
+        if (!graph_patch_collect(static_cast<cudaGraph_t>(body_graphs[i]), nodes))
+            return nullptr;
+    }
+
+    auto table = std::make_unique<GraphPatchTable>();
+    table->buffer_ptrs.assign(buffer_ptrs, buffer_ptrs + num_buffers);
+    table->aliases = std::move(aliases);
+
+    for (auto& [node, type] : nodes) {
+        GraphPatchNode entry;
+        entry.node = static_cast<CUgraphNode>(node);
+
+        switch (type) {
+        case cudaGraphNodeTypeKernel: {
+            entry.kind = GRAPH_PATCH_KERNEL;
+            if (!check_cu(cuGraphKernelNodeGetParams_f(entry.node, &entry.kernel_params)))
+                return nullptr;
+            if (!entry.kernel_params.func || entry.kernel_params.extra) {
+                wp::set_error_string("Warp error: cannot patch a kernel node without a CUfunction and parameter list");
+                return nullptr;
+            }
+            for (size_t p = 0;; p++) {
+                size_t param_offset = 0, param_size = 0;
+                if (cuFuncGetParamInfo_f(entry.kernel_params.func, p, &param_offset, &param_size) != CUDA_SUCCESS)
+                    break;  // past the last parameter
+                const uint8_t* value = static_cast<const uint8_t*>(entry.kernel_params.kernelParams[p]);
+                entry.param_values.emplace_back(value, value + param_size);
+                for (size_t offset = 0; offset + sizeof(uint64_t) <= param_size; offset += sizeof(uint64_t)) {
+                    uint64_t word;
+                    memcpy(&word, value + offset, sizeof(word));
+                    if (const GraphPatchRange* r = graph_patch_find(ranges, word))
+                        entry.sites.push_back({ uint32_t(p), uint32_t(offset), r->buffer, word - r->begin });
+                }
+            }
+            break;
+        }
+        case cudaGraphNodeTypeMemset: {
+            entry.kind = GRAPH_PATCH_MEMSET;
+            if (!check_cuda(cudaGraphMemsetNodeGetParams(node, &entry.memset_params)))
+                return nullptr;
+            uint64_t dst = uint64_t(entry.memset_params.dst);
+            if (const GraphPatchRange* r = graph_patch_find(ranges, dst))
+                entry.sites.push_back({ 0, 0, r->buffer, dst - r->begin });
+            break;
+        }
+        case cudaGraphNodeTypeMemcpy: {
+            entry.kind = GRAPH_PATCH_MEMCPY;
+            if (!check_cuda(cudaGraphMemcpyNodeGetParams(node, &entry.memcpy_params)))
+                return nullptr;
+            if (entry.memcpy_params.srcArray || entry.memcpy_params.dstArray) {
+                wp::set_error_string("Warp error: cannot patch a graph with CUDA array copies");
+                return nullptr;
+            }
+            uint64_t src = uint64_t(entry.memcpy_params.srcPtr.ptr);
+            uint64_t dst = uint64_t(entry.memcpy_params.dstPtr.ptr);
+            if (entry.memcpy_params.kind == cudaMemcpyHostToDevice || entry.memcpy_params.kind == cudaMemcpyHostToHost
+                || !graph_patch_is_device_memory(entry.memcpy_params.srcPtr.ptr))
+                table->num_host_copies++;
+            if (const GraphPatchRange* r = graph_patch_find(ranges, src))
+                entry.sites.push_back({ 0, 0, r->buffer, src - r->begin });
+            if (const GraphPatchRange* r = graph_patch_find(ranges, dst))
+                entry.sites.push_back({ 1, 0, r->buffer, dst - r->begin });
+            break;
+        }
+        case cudaGraphNodeTypeEmpty:
+        case cudaGraphNodeTypeGraph:  // contents collected above
+        case cudaGraphNodeTypeMemAlloc:  // graph-owned memory, addresses are fixed per graph exec
+        case cudaGraphNodeTypeMemFree:
+        case cudaGraphNodeTypeEventRecord:
+        case cudaGraphNodeTypeWaitEvent:
+#if CUDA_VERSION >= 12030
+        case cudaGraphNodeTypeConditional:  // bodies are passed in by the caller
+#endif
+            continue;
+        default:
+            wp::set_error_string("Warp error: cannot patch a graph containing node type %d", int(type));
+            return nullptr;
+        }
+
+        if (entry.sites.empty())
+            continue;
+        if (entry.kind == GRAPH_PATCH_KERNEL) {
+            for (auto& value : entry.param_values)
+                entry.param_ptrs.push_back(value.data());
+            entry.kernel_params.kernelParams = entry.param_ptrs.data();
+        }
+        table->num_sites += entry.sites.size();
+        table->nodes.push_back(std::move(entry));
+    }
+
+    return table.release();
+}
+
+int wp_cuda_graph_patch_table_num_nodes(void* table)
+{
+    return table ? int(static_cast<GraphPatchTable*>(table)->nodes.size()) : 0;
+}
+
+int wp_cuda_graph_patch_table_num_sites(void* table)
+{
+    return table ? int(static_cast<GraphPatchTable*>(table)->num_sites) : 0;
+}
+
+int wp_cuda_graph_patch_table_num_host_copies(void* table)
+{
+    return table ? int(static_cast<GraphPatchTable*>(table)->num_host_copies) : 0;
+}
+
+bool wp_cuda_graph_patch_table_apply(void* context, void* graph_exec, void* table_, const uint64_t* buffer_ptrs)
+{
+    GraphPatchTable* table = static_cast<GraphPatchTable*>(table_);
+    if (!table || !graph_exec)
+        return false;
+
+    ContextGuard guard(context);
+
+    CUgraphExec exec = static_cast<CUgraphExec>(graph_exec);
+    const size_t num_buffers = table->buffer_ptrs.size();
+
+    for (const auto& [first, other] : table->aliases) {
+        if (buffer_ptrs[first] != buffer_ptrs[other]) {
+            wp::set_error_string("Warp error: buffers that were aliased at capture are no longer aliased");
+            return false;
+        }
+    }
+
+    for (GraphPatchNode& entry : table->nodes) {
+        bool changed = false;
+        for (const GraphPatchSite& site : entry.sites) {
+            if (buffer_ptrs[site.buffer] != table->buffer_ptrs[site.buffer]) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed)
+            continue;
+
+        for (const GraphPatchSite& site : entry.sites) {
+            uint64_t address = buffer_ptrs[site.buffer] + site.delta;
+            switch (entry.kind) {
+            case GRAPH_PATCH_KERNEL:
+                memcpy(entry.param_values[site.param].data() + site.offset, &address, sizeof(address));
+                break;
+            case GRAPH_PATCH_MEMSET:
+                entry.memset_params.dst = reinterpret_cast<void*>(address);
+                break;
+            case GRAPH_PATCH_MEMCPY:
+                if (site.param == 0)
+                    entry.memcpy_params.srcPtr.ptr = reinterpret_cast<void*>(address);
+                else
+                    entry.memcpy_params.dstPtr.ptr = reinterpret_cast<void*>(address);
+                break;
+            }
+        }
+
+        bool ok = false;
+        switch (entry.kind) {
+        case GRAPH_PATCH_KERNEL:
+            ok = check_cu(cuGraphExecKernelNodeSetParams_f(exec, entry.node, &entry.kernel_params));
+            break;
+        case GRAPH_PATCH_MEMSET:
+            ok = check_cuda(cudaGraphExecMemsetNodeSetParams(
+                static_cast<cudaGraphExec_t>(graph_exec), entry.node, &entry.memset_params
+            ));
+            break;
+        case GRAPH_PATCH_MEMCPY:
+            ok = check_cuda(cudaGraphExecMemcpyNodeSetParams(
+                static_cast<cudaGraphExec_t>(graph_exec), entry.node, &entry.memcpy_params
+            ));
+            break;
+        }
+        if (!ok) {
+            // the exec may now be partially patched; the caller must stop using it
+            return false;
+        }
+    }
+
+    table->buffer_ptrs.assign(buffer_ptrs, buffer_ptrs + num_buffers);
+    return true;
+}
+
+void wp_cuda_graph_patch_table_destroy(void* table) { delete static_cast<GraphPatchTable*>(table); }
 
 void* wp_cuda_graph_insert_alloc_node(void* context, size_t size)
 {

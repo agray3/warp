@@ -330,6 +330,17 @@ LLVM options are a power-user feature with process-wide caveats; see
 llvm_cuda: bool = False
 """Use Clang/LLVM compiler instead of NVRTC for CUDA compilation."""
 
+jax_callable_graph_update: bool = True
+"""Patch CUDA graphs of :func:`warp.jax_callable` callables when their buffer addresses change.
+
+Applies to callables in ``JaxCallableGraphMode.WARP`` mode created without an explicit
+``graph_update`` argument, including callables created by other libraries. Read on each graph
+cache miss, so it can be changed at any time. Under this setting, graphs that copy data from host
+memory are not patched, since that data may hold buffer addresses, and graphs that cannot be
+patched are recaptured without a warning. See the ``graph_update`` argument of
+:func:`warp.jax_callable`.
+"""
+
 enable_graph_capture_module_load_by_default: bool = True
 """Enable automatic module loading before graph capture.
 
