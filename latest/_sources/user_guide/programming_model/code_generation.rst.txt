@@ -112,6 +112,8 @@ compute cache that stores JIT-compiled GPU binaries (e.g., native code produced
 from PTX). This driver-level cache is not managed by Warp and is not affected by
 :func:`warp.clear_kernel_cache`. See :ref:`benchmarking-cold-start-compilation`
 for details on how to account for it when measuring compilation times.
+For a practical guide to reducing startup latency and cold compile time, see
+:doc:`../execution_and_performance/reducing_compilation_and_startup_time`.
 
 Consider the following example:
 
@@ -410,6 +412,10 @@ The generated code will not contain the for-loop but instead the loop body will 
     printf(var_3, var_2);
     printf(var_6, var_5);
     printf(var_9, var_8);
+
+A ``continue`` statement does not prevent an otherwise eligible loop from
+being unrolled, even when its condition depends on runtime values.
+Loops containing ``break`` are not normally unrolled.
 
 .. note::
 
@@ -1435,8 +1441,8 @@ prints a message like:
 
 .. code:: text
 
-   Warp 1.12.0 initialized:
-      CUDA Toolkit 13.1, CUDA driver not available (NVRTC compilation available)
+   Warp 1.18.0 initialized:
+      CUDA Toolkit 13.4, CUDA driver not available (NVRTC compilation available)
       Devices:
         "cpu"      : "CPU"
 

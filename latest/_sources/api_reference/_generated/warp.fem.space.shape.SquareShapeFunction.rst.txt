@@ -13,6 +13,7 @@
       ~SquareShapeFunction.make_element_inner_weight
       ~SquareShapeFunction.make_element_inner_weight_gradient
       ~SquareShapeFunction.make_node_coords_in_element
+      ~SquareShapeFunction.make_node_dual_weight
       ~SquareShapeFunction.make_node_quadrature_weight
       ~SquareShapeFunction.make_trace_node_quadrature_weight
    
@@ -26,6 +27,7 @@
       ~SquareShapeFunction.EDGE_X
       ~SquareShapeFunction.EDGE_Y
       ~SquareShapeFunction.INTERIOR
+      ~SquareShapeFunction.INTERPOLATORY
       ~SquareShapeFunction.VERTEX
       ~SquareShapeFunction.name
       ~SquareShapeFunction.value

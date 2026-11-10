@@ -9,7 +9,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>warp.config.verbose &#8212; Warp 1.18.0.dev0</title>
+    <title>warp.sparse.bsr_set_from_mapped_values &#8212; Warp 1.20.0.dev0</title>
   
   
   
@@ -28,30 +28,30 @@
   </noscript>
   
   <!-- Loaded before other Sphinx assets -->
-  <link href="../../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
-<link href="../../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+  <link href="../../_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
 
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../../_static/styles/nvidia-sphinx-theme.css?v=933278ad" />
     <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
-    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=2a8757ae" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ca94f457" />
   
   <!-- So that users can add custom icons -->
-  <script defer src="../../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../../_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
-<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
 
 
 
-    <script src="../../_static/documentation_options.js?v=cbbedd57"></script>
+    <script src="../../_static/documentation_options.js?v=1cb47380"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=fd10adb8"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/_generated/warp.config.verbose';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api_reference/_generated/warp.sparse.bsr_set_from_mapped_values';</script>
     <script>
-        DOCUMENTATION_OPTIONS.theme_version = '0.20.0';
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://nvidia.github.io/warp/versions.json';
         DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'latest';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
@@ -64,13 +64,13 @@
 
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="warp.config.verbose_warnings" href="warp.config.verbose_warnings.html" />
-    <link rel="prev" title="warp.config.use_precompiled_headers" href="warp.config.use_precompiled_headers.html" />
+    <link rel="next" title="warp.sparse.bsr_set_from_triplets" href="warp.sparse.bsr_set_from_triplets.html" />
+    <link rel="prev" title="warp.sparse.bsr_set_diag" href="warp.sparse.bsr_set_diag.html" />
 
 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="1.18.0.dev0" />
+  <meta name="docsearch:version" content="1.20.0.dev0" />
   
     
     <script src="../../_static/searchtools.js"></script>
@@ -147,11 +147,11 @@
       
     
     
-    <img src="../../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Warp 1.18.0.dev0 - Home"/>
-    <img src="../../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Warp 1.18.0.dev0 - Home"/>
+    <img src="../../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Warp 1.20.0.dev0 - Home"/>
+    <img src="../../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Warp 1.20.0.dev0 - Home"/>
   
   
-    <p class="title logo__title">Warp 1.18.0.dev0</p>
+    <p class="title logo__title">Warp 1.20.0.dev0</p>
   
 </a></div>
     
@@ -291,11 +291,11 @@
       
     
     
-    <img src="../../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Warp 1.18.0.dev0 - Home"/>
-    <img src="../../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Warp 1.18.0.dev0 - Home"/>
+    <img src="../../_static/nvidia-logo-horiz-rgb-blk-for-screen.svg" class="logo__image only-light" alt="Warp 1.20.0.dev0 - Home"/>
+    <img src="../../_static/nvidia-logo-horiz-rgb-wht-for-screen.svg" class="logo__image only-dark pst-js-only" alt="Warp 1.20.0.dev0 - Home"/>
   
   
-    <p class="title logo__title">Warp 1.18.0.dev0</p>
+    <p class="title logo__title">Warp 1.20.0.dev0</p>
   
 </a>
 
@@ -414,6 +414,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../user_guide/execution_and_performance/memory_management.html">Memory Allocation and Access</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../user_guide/execution_and_performance/profiling.html">Profiling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../user_guide/execution_and_performance/deterministic_execution.html">Deterministic Execution</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user_guide/execution_and_performance/reducing_compilation_and_startup_time.html">Reducing Compilation and Startup Time</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../user_guide/configuration.html">Configuration</a></li>
@@ -432,6 +433,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../warp_build_experimental.html">warp.build_experimental</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../warp_config.html">warp.config</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../warp_fem.html">warp.fem</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../warp_geometry.html">warp.geometry</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../warp_optim.html">warp.optim</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../warp_render.html">warp.render</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../warp_sparse.html">warp.sparse</a></li>
@@ -484,9 +486,9 @@
       </a>
     </li>
     
-    <li class="breadcrumb-item"><a href="../warp_config.html" class="nav-link">warp.config</a></li>
+    <li class="breadcrumb-item"><a href="../warp_sparse.html" class="nav-link">warp.sparse</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">warp.config.verbose</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">warp.sparse.bsr_set_from_mapped_values</span></li>
   </ul>
 </nav>
 </div>
@@ -503,16 +505,33 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="warp-config-verbose">
-<h1>warp.config.verbose<a class="headerlink" href="#warp-config-verbose" title="Link to this heading">#</a></h1>
-<dl class="py data">
-<dt class="sig sig-object py" id="warp.config.verbose">
-<span class="sig-prename descclassname"><span class="pre">warp.config.</span></span><span class="sig-name descname"><span class="pre">verbose</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="warp.bool.html#warp.bool" title="warp.bool"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#warp.config.verbose" title="Link to this definition">#</a></dt>
-<dd><p>Enable detailed logging during code generation and compilation.</p>
-<div class="deprecated">
-<p><span class="versionmodified deprecated">Deprecated since version Use: </span><code class="docutils literal notranslate"><span class="pre">warp.config.log_level</span> <span class="pre">=</span> <span class="pre">warp.LOG_DEBUG</span></code> instead. Reading or setting
-this flag emits a <code class="docutils literal notranslate"><span class="pre">DeprecationWarning</span></code> for external callers.</p>
-</div>
+  <section id="warp-sparse-bsr-set-from-mapped-values">
+<h1>warp.sparse.bsr_set_from_mapped_values<a class="headerlink" href="#warp-sparse-bsr-set-from-mapped-values" title="Link to this heading">#</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="warp.sparse.bsr_set_from_mapped_values">
+<span class="sig-prename descclassname"><span class="pre">warp.sparse.</span></span><span class="sig-name descname"><span class="pre">bsr_set_from_mapped_values</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dest</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mapping</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reduction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gather'</span></span></em><span class="sig-paren">)</span><a class="reference external" href="https://github.com/NVIDIA/warp/blob/main/warp/_src/sparse.py#L1736-L1805"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#warp.sparse.bsr_set_from_mapped_values" title="Link to this definition">#</a></dt>
+<dd><p>Set BSR values using a precomputed value-to-topology mapping.</p>
+<p>Unlike <a class="reference internal" href="warp.sparse.bsr_set_from_triplets.html#warp.sparse.bsr_set_from_triplets" title="warp.sparse.bsr_set_from_triplets"><code class="xref py py-func docutils literal notranslate"><span class="pre">bsr_set_from_triplets()</span></code></a>, this function does no symbolic
+topology work. <code class="docutils literal notranslate"><span class="pre">reduction=&quot;gather&quot;</span></code> assigns one thread per destination
+block coefficient and is atomic-free; it sums duplicate entries in the same
+order as <a class="reference internal" href="warp.sparse.bsr_set_from_triplets.html#warp.sparse.bsr_set_from_triplets" title="warp.sparse.bsr_set_from_triplets"><code class="xref py py-func docutils literal notranslate"><span class="pre">bsr_set_from_triplets()</span></code></a>. <code class="docutils literal notranslate"><span class="pre">reduction=&quot;atomic&quot;</span></code> assigns one
+thread per input value coefficient.</p>
+<p>The gather launch is dimensioned by the host-side <code class="docutils literal notranslate"><span class="pre">dest.nnz</span></code> upper bound.
+Calling <a class="reference internal" href="warp.sparse.BsrMatrix.html#warp.sparse.BsrMatrix.nnz_sync" title="warp.sparse.BsrMatrix.nnz_sync"><code class="xref py py-meth docutils literal notranslate"><span class="pre">BsrMatrix.nnz_sync()</span></code></a> once after building the map, outside of
+graph capture, tightens that bound for all subsequent calls.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dest</strong> (<a class="reference internal" href="warp.sparse.BsrMatrix.html#warp.sparse.BsrMatrix" title="warp.sparse.BsrMatrix"><em>BsrMatrix</em></a><em>[</em><em>BlockType</em><em>[</em><em>Rows</em><em>, </em><em>Cols</em><em>, </em><a class="reference internal" href="warp.Scalar.html#warp.Scalar" title="warp.Scalar"><em>Scalar</em></a><em>]</em><em>]</em>) – Matrix whose topology was used to build <code class="docutils literal notranslate"><span class="pre">mapping</span></code>.</p></li>
+<li><p><strong>mapping</strong> (<a class="reference internal" href="warp.sparse.BsrTripletMap.html#warp.sparse.BsrTripletMap" title="warp.sparse.BsrTripletMap"><em>BsrTripletMap</em></a>) – Reusable map built by <a class="reference internal" href="warp.sparse.bsr_set_from_triplets.html#warp.sparse.bsr_set_from_triplets" title="warp.sparse.bsr_set_from_triplets"><code class="xref py py-func docutils literal notranslate"><span class="pre">bsr_set_from_triplets()</span></code></a> through its <code class="docutils literal notranslate"><span class="pre">build_mapping</span></code> argument.</p></li>
+<li><p><strong>values</strong> (<em>Array</em><em>[</em><a class="reference internal" href="warp.Scalar.html#warp.Scalar" title="warp.Scalar"><em>Scalar</em></a><em> | </em><em>BlockType</em><em>[</em><em>Rows</em><em>, </em><em>Cols</em><em>, </em><a class="reference internal" href="warp.Scalar.html#warp.Scalar" title="warp.Scalar"><em>Scalar</em></a><em>]</em><em>]</em>) – Contiguous array containing the current numerical value for every mapped input.</p></li>
+<li><p><strong>reduction</strong> (<em>Literal</em><em>[</em><em>'gather'</em><em>, </em><em>'atomic'</em><em>]</em>) – Numerical duplicate-reduction strategy.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -528,20 +547,20 @@ this flag emits a <code class="docutils literal notranslate"><span class="pre">D
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="warp.config.use_precompiled_headers.html"
+       href="warp.sparse.bsr_set_diag.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">warp.config.use_precompiled_headers</p>
+        <p class="prev-next-title">warp.sparse.bsr_set_diag</p>
       </div>
     </a>
     <a class="right-next"
-       href="warp.config.verbose_warnings.html"
+       href="warp.sparse.bsr_set_from_triplets.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">warp.config.verbose_warnings</p>
+        <p class="prev-next-title">warp.sparse.bsr_set_from_triplets</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -566,7 +585,7 @@ this flag emits a <code class="docutils literal notranslate"><span class="pre">D
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#warp.config.verbose"><code class="docutils literal notranslate"><span class="pre">verbose</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#warp.sparse.bsr_set_from_mapped_values"><code class="docutils literal notranslate"><span class="pre">bsr_set_from_mapped_values()</span></code></a></li>
 </ul>
   </nav></div>
 
@@ -585,8 +604,8 @@ this flag emits a <code class="docutils literal notranslate"><span class="pre">D
   
 
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script defer src="../../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
-<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+  <script defer src="../../_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
 
 
   <footer class="bd-footer">

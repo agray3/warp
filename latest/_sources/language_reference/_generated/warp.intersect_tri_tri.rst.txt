@@ -1,19 +1,22 @@
 ﻿warp.intersect\_tri\_tri
 ========================
 
-.. function:: warp._src.lang.intersect_tri_tri(v0: vec3f, v1: vec3f, v2: vec3f, u0: vec3f, u1: vec3f, u2: vec3f) -> int
+.. currentmodule:: warp._src.lang
 
-   .. hlist::
-      :columns: 8
+.. function:: intersect_tri_tri(v0: vec3f, v1: vec3f, v2: vec3f, u0: vec3f, u1: vec3f, u2: vec3f) -> int
 
-      * Kernel
+   .. wp-function-tags::
+      :kernel: true
+      :python: false
+      :differentiable: false
 
    Test whether two triangles ``(v0, v1, v2)`` and ``(u0, u1, u2)`` intersect, using Möller's method.
    
    All six vertices must be in the same coordinate space. Coplanar triangles are handled (an
    overlap within their common plane counts as an intersection). This single-precision overload
-   may return incorrect results in near-degenerate cases; use the double-precision overload
-   (``vec3d`` inputs) for greater robustness.
+   may return incorrect results in near-degenerate cases; use the
+   ``wp.intersect_tri_tri(v0, v1, v2, u0, u1, u2)`` overload with ``vec3d`` vertices for greater
+   robustness.
    
    :returns: ``1`` if the triangles intersect, ``0`` otherwise.
    
@@ -36,19 +39,20 @@
        intersect: 1
    
 
-.. function:: warp._src.lang.intersect_tri_tri(v0: vec3d, v1: vec3d, v2: vec3d, u0: vec3d, u1: vec3d, u2: vec3d) -> int
+.. function:: intersect_tri_tri(v0: vec3d, v1: vec3d, v2: vec3d, u0: vec3d, u1: vec3d, u2: vec3d) -> int
    :noindex:
 
-   .. hlist::
-      :columns: 8
-
-      * Kernel
+   .. wp-function-tags::
+      :kernel: true
+      :python: false
+      :differentiable: false
 
    Test whether two triangles ``(v0, v1, v2)`` and ``(u0, u1, u2)`` intersect, using Möller's method.
    
    All six vertices must be in the same coordinate space. Coplanar triangles are handled (an
    overlap within their common plane counts as an intersection). This double-precision overload is
-   more accurate than the single-precision (``vec3`` inputs) overload.
+   more accurate than the ``wp.intersect_tri_tri(v0, v1, v2, u0, u1, u2)`` overload with ``vec3``
+   vertices.
    
    :returns: ``1`` if the triangles intersect, ``0`` otherwise.
    

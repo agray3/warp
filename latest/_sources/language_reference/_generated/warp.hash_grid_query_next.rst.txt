@@ -1,12 +1,14 @@
 ﻿warp.hash\_grid\_query\_next
 ============================
 
-.. function:: warp._src.lang.hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
+.. currentmodule:: warp._src.lang
 
-   .. hlist::
-      :columns: 8
+.. function:: hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
 
-      * Kernel
+   .. wp-function-tags::
+      :kernel: true
+      :python: false
+      :differentiable: false
 
    Advance a hash grid query to the next candidate neighbor and report whether one was found.
    
@@ -52,19 +54,21 @@
        [2 2 1 1]
    
 
-.. function:: warp._src.lang.hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
+.. function:: hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
    :noindex:
 
-   .. hlist::
-      :columns: 8
-
-      * Kernel
+   .. wp-function-tags::
+      :kernel: true
+      :python: false
+      :differentiable: false
 
    Advance a hash grid query to the next candidate neighbor and report whether one was found (float16 precision).
    
-   The ``float16`` overload of :func:`hash_grid_query_next`, taking the query returned by the
-   ``float16`` :func:`hash_grid_query`. Behavior and usage match the default ``float32``
-   overload; see it for details and a usage example.
+   The ``float16`` overload of :func:`hash_grid_query_next`, taking the query returned by
+   the ``wp.hash_grid_query(id, wp.vec3h(...), max_dist)`` overload. Behavior and usage match the
+   ``wp.hash_grid_query_next(query, index)`` overload on a query from the
+   ``wp.hash_grid_query(id, wp.vec3(...), max_dist)`` overload; see that ``hash_grid_query_next`` overload for details and a
+   usage example.
    
    :param query: The query to advance, from :func:`hash_grid_query`
    :param index: Output; receives the index of the current candidate neighbor
@@ -73,19 +77,21 @@
              query is exhausted.
    
 
-.. function:: warp._src.lang.hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
+.. function:: hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
    :noindex:
 
-   .. hlist::
-      :columns: 8
-
-      * Kernel
+   .. wp-function-tags::
+      :kernel: true
+      :python: false
+      :differentiable: false
 
    Advance a hash grid query to the next candidate neighbor and report whether one was found (float64 precision).
    
-   The ``float64`` overload of :func:`hash_grid_query_next`, taking the query returned by the
-   ``float64`` :func:`hash_grid_query`. Behavior and usage match the default ``float32``
-   overload; see it for details and a usage example.
+   The ``float64`` overload of :func:`hash_grid_query_next`, taking the query returned by
+   the ``wp.hash_grid_query(id, wp.vec3d(...), max_dist)`` overload. Behavior and usage match the
+   ``wp.hash_grid_query_next(query, index)`` overload on a query from the
+   ``wp.hash_grid_query(id, wp.vec3(...), max_dist)`` overload; see that ``hash_grid_query_next`` overload for details and a
+   usage example.
    
    :param query: The query to advance, from :func:`hash_grid_query`
    :param index: Output; receives the index of the current candidate neighbor

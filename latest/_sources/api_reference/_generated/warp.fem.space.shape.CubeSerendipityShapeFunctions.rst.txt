@@ -15,6 +15,7 @@
       ~CubeSerendipityShapeFunctions.make_element_inner_weight
       ~CubeSerendipityShapeFunctions.make_element_inner_weight_gradient
       ~CubeSerendipityShapeFunctions.make_node_coords_in_element
+      ~CubeSerendipityShapeFunctions.make_node_dual_weight
       ~CubeSerendipityShapeFunctions.make_node_quadrature_weight
       ~CubeSerendipityShapeFunctions.make_trace_node_quadrature_weight
    
@@ -28,6 +29,7 @@
       ~CubeSerendipityShapeFunctions.EDGE
       ~CubeSerendipityShapeFunctions.FACE
       ~CubeSerendipityShapeFunctions.INTERIOR
+      ~CubeSerendipityShapeFunctions.INTERPOLATORY
       ~CubeSerendipityShapeFunctions.VERTEX
       ~CubeSerendipityShapeFunctions.name
       ~CubeSerendipityShapeFunctions.value
